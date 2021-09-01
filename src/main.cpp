@@ -40,6 +40,8 @@ volatile bool receivedFlag = false;
 // disable interrupt when it's not needed
 volatile bool enableInterrupt = true;
 
+unsigned long lastSend = 0;
+
 // this function is called when a complete packet
 // is received by the module
 // IMPORTANT: this function MUST be 'void' type
@@ -117,9 +119,23 @@ void setup() {
     // radio.transmit();
     // radio.receive();
     // radio.readData();
+
+    lastSend = millis();
 }
 
 void loop() {
+    unsigned long now = millis();
+
+    if (now - lastSend > 4000) {
+        // Send something
+            Serial.println(F("Sending..."));
+            uint8_t data[] = {0x00, 0x20, 0x00, 0x01 };
+            size_t datalen = 4;
+            radio.transmit(data, datalen);
+
+            lastSend = now;
+    }
+
     // check if the flag is set
     if(receivedFlag) {
         // disable the interrupt service routine while
