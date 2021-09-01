@@ -54,12 +54,21 @@ void setFlag(void) {
     receivedFlag = true;
 }
 
+void PrintHex8(uint8_t *data, uint8_t length) // prints 8-bit data in hex with leading zeroes
+{
+    for (int i=0; i<length; i++) {
+        if (data[i]<0x10) {Serial.print("0");}
+        Serial.print(data[i],HEX);
+        Serial.print(" ");
+    }
+}
+
 void setup() {
     Serial.begin(38400);
 
     // initialize CC1101 with default settings
     Serial.print(F("[CC1101] Initializing ... "));
-    int state = radio.begin(868.3, 38.4, 20.0, 200.0, 10, 32);
+    int state = radio.begin(868.3, 38.4, 21.0, 200.0, 10, 32);
     if (state == ERR_NONE) {
         Serial.println(F("success!"));
     } else {
@@ -76,10 +85,18 @@ void setup() {
     //radio.setPromiscuousMode(true);
     radio.setCrcFiltering(false);
     radio.setEncoding(RADIOLIB_ENCODING_WHITENING);
-
+    radio.SPIsetRegValue(CC1101_REG_MDMCFG2, CC1101_SYNC_MODE_30_32, 2, 0);
     // set the function that will be called
     // when new packet is received
     radio.setGdo0Action(setFlag);
+
+    Serial.print(F("[CC1101] Registers dump: \n"));
+    for (int i = 0; i < 0x30; ++i) {
+        uint8_t value = radio.SPIreadRegister(i);
+        PrintHex8(&value,1);
+        if (i % 8 == 7)
+            Serial.println();
+    }
 
     // start listening for packets
     Serial.print(F("[CC1101] Starting to listen ... "));
@@ -113,8 +130,9 @@ void loop() {
         receivedFlag = false;
 
         // you can read received data as an Arduino String
-        String str;
-        int state = radio.readData(str);
+        auto len = radio.getPacketLength();
+        uint8_t str[255];
+        int state = radio.readData(str, 255);
 
         // you can also read received data as byte array
         /*
@@ -128,7 +146,13 @@ void loop() {
 
             // print data of the packet
             Serial.print(F("[CC1101] Data:\t\t"));
-            Serial.println(str);
+            for (auto i = 0; i < len; ++i){
+                PrintHex8(&str[i],1);
+                if (i % 16 == 15) {
+                    Serial.print("\n");
+                }
+            }
+            Serial.println();
 
             // print RSSI (Received Signal Strength Indicator)
             // of the last received packet
