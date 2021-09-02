@@ -43,6 +43,7 @@ volatile bool enableInterrupt = true;
 unsigned long lastSend = 0;
 
 bool enableSend = true;
+bool machineReadbale = true;
 
 // this function is called when a complete packet
 // is received by the module
@@ -58,12 +59,14 @@ void setFlag(void) {
     receivedFlag = true;
 }
 
-void PrintHex8(uint8_t *data, uint8_t length) // prints 8-bit data in hex with leading zeroes
+void PrintHex8(uint8_t *data, uint8_t length, char const *separator) // prints 8-bit data in hex with leading zeroes
 {
     for (int i=0; i<length; i++) {
         if (data[i]<0x10) {Serial.print("0");}
         Serial.print(data[i],HEX);
-        Serial.print(" ");
+
+        if (separator != nullptr)
+            Serial.print(" ");
     }
 }
 
@@ -71,10 +74,12 @@ void setup() {
     Serial.begin(38400);
 
     // initialize CC1101 with default settings
-    Serial.print(F("[CC1101] Initializing ... "));
+    if (!machineReadbale)
+        Serial.print(F("[CC1101] Initializing ... "));
     int state = radio.begin(868.3, 38.383, 20.63, 101.56, 10, 32);
     if (state == ERR_NONE) {
-        Serial.println(F("success!"));
+        if (!machineReadbale)
+            Serial.println(F("success!"));
     } else {
         Serial.print(F("failed, code "));
         Serial.println(state);
@@ -97,19 +102,24 @@ void setup() {
     // when new packet is received
     radio.setGdo0Action(setFlag);
 
-    Serial.println(F("[CC1101] Registers dump:"));
-    for (int i = 0; i < 0x30; ++i) {
-        uint8_t value = radio.SPIreadRegister(i);
-        PrintHex8(&value,1);
-        if (i % 8 == 7)
-            Serial.println();
+    if (!machineReadbale) {
+        Serial.println(F("[CC1101] Registers dump:"));
+        for (int i = 0; i < 0x30; ++i) {
+            uint8_t value = radio.SPIreadRegister(i);
+            PrintHex8(&value, 1, " ");
+            if (i % 8 == 7) {
+                Serial.println();
+            }
+        }
     }
 
     // start listening for packets
-    Serial.print(F("[CC1101] Starting to listen ... "));
+    if (!machineReadbale)
+        Serial.print(F("[CC1101] Starting to listen ... "));
     state = radio.startReceive();
     if (state == ERR_NONE) {
-        Serial.println(F("success!"));
+        if (!machineReadbale)
+            Serial.println(F("success!"));
     } else {
         Serial.print(F("failed, code "));
         Serial.println(state);
@@ -126,7 +136,7 @@ void setup() {
     // radio.readData();
 
     lastSend = millis();
-    enableSend = true;
+    enableSend = false;
 }
 
 void loop() {
@@ -136,12 +146,12 @@ void loop() {
         // Send something
         radio.clearGdo0Action();
 
-            Serial.println(F("Sending..."));
-            uint8_t data[] = {0x00, 0x20, 0x00, 0x01, 0x41, 0x42, 0x43, 0x44 };
-            size_t datalen = 8;
-            radio.transmit(data, datalen);
+        Serial.println(F("Sending..."));
+        uint8_t data[] = {0x00, 0x20, 0x00, 0x01, 0x41, 0x42, 0x43, 0x44 };
+        size_t datalen = 8;
+        radio.transmit(data, datalen);
 
-            lastSend = now;
+        lastSend = now;
         radio.setGdo0Action(setFlag);
 
         radio.startReceive();
@@ -169,13 +179,15 @@ void loop() {
 
         if (state == ERR_NONE) {
             // packet was successfully received
-            Serial.println(F("[CC1101] Received packet!"));
+            if (!machineReadbale)
+                Serial.println(F("[CC1101] Received packet!"));
 
             // print data of the packet
-            Serial.print(F("[CC1101] Data:\t\t"));
+            if (!machineReadbale)
+                Serial.print(F("[CC1101] Data:\t\t"));
             for (auto i = 0; i < len; ++i){
-                PrintHex8(&str[i],1);
-                if (i % 16 == 15) {
+                PrintHex8(&str[i],1, (machineReadbale ? nullptr : " "));
+                if (!machineReadbale && (i % 16 )== 15) {
                     Serial.println();
                 }
             }
@@ -183,24 +195,23 @@ void loop() {
 
             // print RSSI (Received Signal Strength Indicator)
             // of the last received packet
-            Serial.print(F("[CC1101] RSSI:\t\t"));
-            Serial.print(radio.getRSSI());
-            Serial.println(F(" dBm"));
+            if (!machineReadbale) {
+                Serial.print(F("[CC1101] RSSI:\t\t"));
+                Serial.print(radio.getRSSI());
+                Serial.println(F(" dBm"));
 
-            // print LQI (Link Quality Indicator)
-            // of the last received packet, lower is better
-            Serial.print(F("[CC1101] LQI:\t\t"));
-            Serial.println(radio.getLQI());
-
+                // print LQI (Link Quality Indicator)
+                // of the last received packet, lower is better
+                Serial.print(F("[CC1101] LQI:\t\t"));
+                Serial.println(radio.getLQI());
+            }
         } else if (state == ERR_CRC_MISMATCH) {
             // packet was received, but is malformed
             Serial.println(F("CRC error!"));
-
         } else {
             // some other error occurred
             Serial.print(F("failed, code "));
             Serial.println(state);
-
         }
 
         // put module back to listen mode
