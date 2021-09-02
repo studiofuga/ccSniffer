@@ -42,6 +42,8 @@ volatile bool enableInterrupt = true;
 
 unsigned long lastSend = 0;
 
+bool enableSend = true;
+
 // this function is called when a complete packet
 // is received by the module
 // IMPORTANT: this function MUST be 'void' type
@@ -70,7 +72,7 @@ void setup() {
 
     // initialize CC1101 with default settings
     Serial.print(F("[CC1101] Initializing ... "));
-    int state = radio.begin(868.3, 38.4, 21.0, 200.0, 10, 32);
+    int state = radio.begin(868.3, 38.383, 20.63, 101.56, 10, 32);
     if (state == ERR_NONE) {
         Serial.println(F("success!"));
     } else {
@@ -87,12 +89,15 @@ void setup() {
     //radio.setPromiscuousMode(true);
     radio.setCrcFiltering(false);
     radio.setEncoding(RADIOLIB_ENCODING_WHITENING);
+    radio.SPIsetRegValue(CC1101_REG_PKTCTRL0, CC1101_CRC_ON, 2, 2);
     radio.SPIsetRegValue(CC1101_REG_MDMCFG2, CC1101_SYNC_MODE_30_32, 2, 0);
+    radio.SPIsetRegValue(CC1101_REG_FSCTRL1, 0x06, 4, 0);
+    radio.SPIsetRegValue(CC1101_REG_FSCTRL0, 0x05, 7, 0);
     // set the function that will be called
     // when new packet is received
     radio.setGdo0Action(setFlag);
 
-    Serial.print(F("[CC1101] Registers dump: \n"));
+    Serial.println(F("[CC1101] Registers dump:"));
     for (int i = 0; i < 0x30; ++i) {
         uint8_t value = radio.SPIreadRegister(i);
         PrintHex8(&value,1);
@@ -121,19 +126,25 @@ void setup() {
     // radio.readData();
 
     lastSend = millis();
+    enableSend = true;
 }
 
 void loop() {
     unsigned long now = millis();
 
-    if (now - lastSend > 4000) {
+    if (enableSend && now - lastSend > 5000) {
         // Send something
+        radio.clearGdo0Action();
+
             Serial.println(F("Sending..."));
-            uint8_t data[] = {0x00, 0x20, 0x00, 0x01 };
-            size_t datalen = 4;
+            uint8_t data[] = {0x00, 0x20, 0x00, 0x01, 0x41, 0x42, 0x43, 0x44 };
+            size_t datalen = 8;
             radio.transmit(data, datalen);
 
             lastSend = now;
+        radio.setGdo0Action(setFlag);
+
+        radio.startReceive();
     }
 
     // check if the flag is set
@@ -165,7 +176,7 @@ void loop() {
             for (auto i = 0; i < len; ++i){
                 PrintHex8(&str[i],1);
                 if (i % 16 == 15) {
-                    Serial.print("\n");
+                    Serial.println();
                 }
             }
             Serial.println();
