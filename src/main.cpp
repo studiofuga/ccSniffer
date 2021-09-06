@@ -6,10 +6,7 @@ volatile bool receivedFlag = false;
 volatile bool enableInterrupt = true;
 volatile bool transmitting = false;
 
-unsigned long lastSend = 0;
-
-bool enableSend = true;
-bool machineReadbale = false;
+bool machineReadbale = true;
 
 void setFlag(void)
 {
@@ -88,47 +85,38 @@ void setup()
         Serial.println(state);
         while (true) {}
     }
-
-    lastSend = millis();
-    enableSend = true;
 }
 
-void loop()
+void transmitHex(char *text)
 {
-    unsigned long now = millis();
+    transmitting = true;
+    radio.clearGdo0Action();
 
-    if (enableSend && now - lastSend > 5000) {
-        transmitting = true;
-        radio.clearGdo0Action();
+    Serial.println(F("Sending..."));
+    uint8_t data[] = {0x00, 0x20, 0x00, 0x01, 0x41, 0x42, 0x43, 0x44};
+    size_t datalen = 8;
+    radio.transmit(data, datalen);
 
-        Serial.println(F("Sending..."));
-        uint8_t data[] = {0x00, 0x20, 0x00, 0x01, 0x41, 0x42, 0x43, 0x44};
-        size_t datalen = 8;
-        radio.transmit(data, datalen);
+    radio.startReceive();
+    transmitting = false;
+}
 
-        lastSend = now;
-        radio.setGdo0Action(setFlag);
+void handleReceived()
+{
+    enableInterrupt = false;
+    receivedFlag = false;
 
-        radio.startReceive();
-        transmitting = false;
-    }
+    auto len = radio.getPacketLength();
+    uint8_t str[255];
+    int state = radio.readData(str, 255);
 
-    if (receivedFlag) {
-        enableInterrupt = false;
-        receivedFlag = false;
-
-        auto len = radio.getPacketLength();
-        uint8_t str[255];
-        int state = radio.readData(str, 255);
-
-        if (state == ERR_NONE) {
-            if (!machineReadbale) {
-                Serial.println(F("[CC1101] Received packet!"));
+    if (state == ERR_NONE || state == ERR_CRC_MISMATCH) {
+        if (!machineReadbale) {
+            Serial.println(F("[CC1101] Received packet!"));
+            if (state == ERR_CRC_MISMATCH) {
+                Serial.print(F("[CC1101] BAD CRC!"));
             }
-
-            if (!machineReadbale) {
-                Serial.print(F("[CC1101] Data:\t\t"));
-            }
+            Serial.print(F("[CC1101] Data:\t\t"));
             for (auto i = 0; i < len; ++i) {
                 PrintHex8(&str[i], 1, (machineReadbale ? nullptr : " "));
                 if (!machineReadbale && (i % 16) == 15) {
@@ -137,25 +125,48 @@ void loop()
             }
             Serial.println();
 
-            if (!machineReadbale) {
-                Serial.print(F("[CC1101] RSSI:\t\t"));
-                Serial.print(radio.getRSSI());
-                Serial.println(F(" dBm"));
+            Serial.print(F("[CC1101] RSSI:\t\t"));
+            Serial.print(radio.getRSSI());
+            Serial.println(F(" dBm"));
 
-                Serial.print(F("[CC1101] LQI:\t\t"));
-                Serial.println(radio.getLQI());
-            }
-        } else if (state == ERR_CRC_MISMATCH) {
-            Serial.println(F("CRC error!"));
+            Serial.print(F("[CC1101] LQI:\t\t"));
+            Serial.println(radio.getLQI());
         } else {
+            Serial.print(F("*"));
+            Serial.print(millis());
+            Serial.print(F(","));
+            Serial.print(radio.getRSSI());
+            Serial.print(F(","));
+            Serial.print(radio.getLQI());
+            Serial.print(F(","));
+            for (auto i = 0; i < len; ++i) {
+                PrintHex8(&str[i], 1, nullptr);
+            }
+
+            if (state == ERR_CRC_MISMATCH) {
+                Serial.print(",BADCRC");
+            }
+            Serial.println();
+        }
+    } else {
+        if (!machineReadbale) {
             Serial.print(F("failed, code "));
             Serial.println(state);
+        } else {
+            Serial.print("!ERR:");
+            Serial.println(state);
         }
-
-        radio.startReceive();
-        enableInterrupt = true;
     }
 
+    radio.startReceive();
+    enableInterrupt = true;
+}
+
+void loop()
+{
+    if (receivedFlag) {
+        handleReceived();
+    }
 }
 
 
