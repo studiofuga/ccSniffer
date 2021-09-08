@@ -1,8 +1,9 @@
 #include <Arduino.h>
-#include <RadioLib.h>
+#include "cc1101.h"
+//#include <RadioLib.h>
 #include "PacketQueue.h"
 
-CC1101 radio = new Module(10, 3, RADIOLIB_NC, 2);
+CC1101Tranceiver radio(10, 3, 2);
 volatile bool receivedFlag = false;
 volatile bool enableInterrupt = true;
 volatile bool transmitting = false;
@@ -16,7 +17,7 @@ void irqRead(void);
 int numIrq = 0;
 int numFailedIrq = 0;
 int numPacket = 0;
-int lastState = ERR_NONE;
+//int lastState = ERR_NONE;
 
 void PrintHex8(uint8_t *data, uint8_t length, char const *separator) // prints 8-bit data in hex with leading zeroes
 {
@@ -38,6 +39,7 @@ void setup()
     if (!machineReadbale) {
         Serial.print(F("[CC1101] Initializing ... "));
     }
+/*
     int state = radio.begin(868.3, 38.383, 20.63, 101.56, 10, 32);
     if (state == ERR_NONE) {
         if (!machineReadbale) {
@@ -48,21 +50,41 @@ void setup()
         Serial.println(state);
         while (true) {}
     }
+*/
+    auto state = radio.initialize();
+    if (state == 0) {
+        Serial.println(F("success!"));
+    } else {
+        Serial.print(F("failed, code "));
+        Serial.println(state);
+        while (true) {}
+    }
 
-    radio.setPreambleLength(32);
+    auto v = radio.getChipVersion();
+    Serial.print("Chip version: ");
+    Serial.println(v);
+
+    radio.setFrequency(868.3);
+    radio.setBitrate(38.383);
+    radio.setDeviation(20.63);
+    radio.setReceiverBW(101.56);
+    radio.setOutputPower(10);
+
+    radio.setModulation(CC1101Tranceiver::Modulation::GFSK);
+    radio.setPreambleLength(CC1101Tranceiver::PreambleTypes::Bytes4);
     radio.setSyncWord(0x2d, 0xc5);
-    radio.enableSyncWordFiltering();
-    radio.disableAddressFiltering();
-    radio.setDataShaping(RADIOLIB_SHAPING_0_5);
-    radio.setCrcFiltering(false);
-    radio.setEncoding(RADIOLIB_ENCODING_WHITENING);
+//    radio.enableSyncWordFiltering();
+//    radio.disableAddressFiltering();
+//    radio.setDataShaping(RADIOLIB_SHAPING_0_5);
+    radio.enableCRC();
+    radio.enableWhitening();
     radio.SPIsetRegValue(CC1101_REG_PKTCTRL0, CC1101_CRC_ON, 2, 2);
     radio.SPIsetRegValue(CC1101_REG_MDMCFG2, CC1101_SYNC_MODE_30_32, 2, 0);
     radio.SPIsetRegValue(CC1101_REG_FSCTRL1, 0x06, 4, 0);
     radio.SPIsetRegValue(CC1101_REG_FSCTRL0, 0x05, 7, 0);
 
     Serial.print(F("Setting IRQs"));
-    radio.setGdo0Action(irqRead);
+//    radio.setReceiveHandler(irqRead);
     Serial.println(F(" Done"));
 
     if (!machineReadbale) {
@@ -79,7 +101,8 @@ void setup()
     if (!machineReadbale) {
         Serial.print(F("[CC1101] Starting to listen ... "));
     }
-    state = radio.startReceive();
+    state = radio.receive();
+/*
     if (state == ERR_NONE) {
         if (!machineReadbale) {
             Serial.println(F("success!"));
@@ -89,6 +112,7 @@ void setup()
         Serial.println(state);
         while (true) {}
     }
+*/
 }
 
 void irqRead(void)
@@ -100,20 +124,20 @@ void irqRead(void)
         return;
     }
 
-    auto len = radio.getPacketLength(true);
+    uint8_t str[128];
+    int len = radio.read(str, 128);
+
     if (len > 0) {
-        uint8_t str[CC1101_MAX_PACKET_LENGTH];
-        int state = radio.readData(str, CC1101_MAX_PACKET_LENGTH);
-        lastState = state;
 //        if (state == ERR_NONE || state == ERR_CRC_MISMATCH) {
             ++numPacket;
             queue.push((char *) str, len);
 //        }
     }
     receivedFlag = true;
-    radio.startReceive();
+    radio.receive();
 }
 
+/*
 void transmitHex(char *text)
 {
     transmitting = true;
@@ -127,6 +151,8 @@ void transmitHex(char *text)
     radio.startReceive();
     transmitting = false;
 }
+
+*/
 
 void handleReceived()
 {
@@ -159,12 +185,14 @@ int cacheNumIrq = -1, cacheNumFailed = -1, cachedNumPacket = -1;
 
 void loop()
 {
+/*
     if (lastState != ERR_NONE) {
         Serial.print("ERR: ");
         Serial.println(lastState);
         lastState = ERR_NONE;
     }
 
+*/
     if (cacheNumIrq != numIrq || cacheNumFailed != numFailedIrq || cachedNumPacket != numPacket) {
         Serial.print(numIrq);
         Serial.print(" ");
