@@ -1,20 +1,22 @@
 #include <Arduino.h>
 #include <RadioLib.h>
+#include "PacketQueue.h"
 
 CC1101 radio = new Module(10, 3, RADIOLIB_NC, 2);
 volatile bool receivedFlag = false;
 volatile bool enableInterrupt = true;
 volatile bool transmitting = false;
 
-bool machineReadbale = true;
+bool machineReadbale = false;
 
-void setFlag(void)
-{
-    if (!enableInterrupt || transmitting) {
-        return;
-    }
-    receivedFlag = true;
-}
+PacketQueue<4, 64> queue;
+
+void irqRead(void);
+
+int numIrq = 0;
+int numFailedIrq = 0;
+int numPacket = 0;
+int lastState = ERR_NONE;
 
 void PrintHex8(uint8_t *data, uint8_t length, char const *separator) // prints 8-bit data in hex with leading zeroes
 {
@@ -59,7 +61,9 @@ void setup()
     radio.SPIsetRegValue(CC1101_REG_FSCTRL1, 0x06, 4, 0);
     radio.SPIsetRegValue(CC1101_REG_FSCTRL0, 0x05, 7, 0);
 
-    radio.setGdo0Action(setFlag);
+    Serial.print(F("Setting IRQs"));
+    radio.setGdo0Action(irqRead);
+    Serial.println(F(" Done"));
 
     if (!machineReadbale) {
         Serial.println(F("[CC1101] Registers dump:"));
@@ -87,6 +91,29 @@ void setup()
     }
 }
 
+void irqRead(void)
+{
+    ++numIrq;
+    if (!enableInterrupt || transmitting) {
+        ++numFailedIrq;
+//        radio.startReceive();
+        return;
+    }
+
+    auto len = radio.getPacketLength(true);
+    if (len > 0) {
+        uint8_t str[CC1101_MAX_PACKET_LENGTH];
+        int state = radio.readData(str, CC1101_MAX_PACKET_LENGTH);
+        lastState = state;
+//        if (state == ERR_NONE || state == ERR_CRC_MISMATCH) {
+            ++numPacket;
+            queue.push((char *) str, len);
+//        }
+    }
+    receivedFlag = true;
+    radio.startReceive();
+}
+
 void transmitHex(char *text)
 {
     transmitting = true;
@@ -106,64 +133,50 @@ void handleReceived()
     enableInterrupt = false;
     receivedFlag = false;
 
-    auto len = radio.getPacketLength();
-    uint8_t str[255];
-    int state = radio.readData(str, 255);
+    if (!queue.empty()) {
+        uint8_t buf[128];
+        uint8_t len = queue.pop((char *) buf);
 
-    if (state == ERR_NONE || state == ERR_CRC_MISMATCH) {
-        if (!machineReadbale) {
-            Serial.println(F("[CC1101] Received packet!"));
-            if (state == ERR_CRC_MISMATCH) {
-                Serial.print(F("[CC1101] BAD CRC!"));
-            }
-            Serial.print(F("[CC1101] Data:\t\t"));
-            for (auto i = 0; i < len; ++i) {
-                PrintHex8(&str[i], 1, (machineReadbale ? nullptr : " "));
-                if (!machineReadbale && (i % 16) == 15) {
-                    Serial.println();
-                }
-            }
-            Serial.println();
-
-            Serial.print(F("[CC1101] RSSI:\t\t"));
-            Serial.print(radio.getRSSI());
-            Serial.println(F(" dBm"));
-
-            Serial.print(F("[CC1101] LQI:\t\t"));
-            Serial.println(radio.getLQI());
-        } else {
-            Serial.print(F("*"));
-            Serial.print(millis());
-            Serial.print(F(","));
-            Serial.print(radio.getRSSI());
-            Serial.print(F(","));
-            Serial.print(radio.getLQI());
-            Serial.print(F(","));
-            for (auto i = 0; i < len; ++i) {
-                PrintHex8(&str[i], 1, nullptr);
-            }
-
-            if (state == ERR_CRC_MISMATCH) {
-                Serial.print(",BADCRC");
-            }
-            Serial.println();
+        Serial.print(F("*"));
+        Serial.print(millis());
+        Serial.print(F(","));
+        for (auto i = 0; i < len; ++i) {
+            PrintHex8(&buf[i], 1, nullptr);
         }
-    } else {
-        if (!machineReadbale) {
-            Serial.print(F("failed, code "));
-            Serial.println(state);
-        } else {
-            Serial.print("!ERR:");
-            Serial.println(state);
+
+/*
+        if (state == ERR_CRC_MISMATCH) {
+            Serial.print(",BADCRC");
         }
+*/
+        Serial.println();
     }
-
-    radio.startReceive();
     enableInterrupt = true;
 }
 
+
+int cacheNumIrq = -1, cacheNumFailed = -1, cachedNumPacket = -1;
+
 void loop()
 {
+    if (lastState != ERR_NONE) {
+        Serial.print("ERR: ");
+        Serial.println(lastState);
+        lastState = ERR_NONE;
+    }
+
+    if (cacheNumIrq != numIrq || cacheNumFailed != numFailedIrq || cachedNumPacket != numPacket) {
+        Serial.print(numIrq);
+        Serial.print(" ");
+        Serial.print(numFailedIrq);
+        Serial.print(" ");
+        Serial.print(numPacket);
+        Serial.println();
+        cacheNumIrq = numIrq ;
+        cacheNumFailed = numFailedIrq;
+        cachedNumPacket = numPacket;
+    }
+
     if (receivedFlag) {
         handleReceived();
     }
