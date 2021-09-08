@@ -1,6 +1,7 @@
-//
-// Created by happycactus on 06/09/21.
-//
+/*
+ * This code is based on RadioLib by Jan Gromeš
+ * https://github.com/jgromes/RadioLib
+ */
 
 #ifndef CCSNIFFER_CC1101_H
 #define CCSNIFFER_CC1101_H

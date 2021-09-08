@@ -1,6 +1,7 @@
-//
-// Taken from RadioLib
-//
+/*
+ * This code is based on RadioLib by Jan Gromeš
+ * https://github.com/jgromes/RadioLib
+ */
 
 #ifndef CCSNIFFER_CC1101CONSTS_H
 #define CCSNIFFER_CC1101CONSTS_H
