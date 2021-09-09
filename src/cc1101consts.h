@@ -96,8 +96,8 @@
 #define CC1101_REG_WORTIME0                           0x37
 #define CC1101_REG_PKTSTATUS                          0x38
 #define CC1101_REG_VCO_VC_DAC                         0x39
-#define CC1101_REG_TXBYTES                            0x3A
-#define CC1101_REG_RXBYTES                            0x3B
+#define CC1101_REG_TXBYTES                            0x7A
+#define CC1101_REG_RXBYTES                            0x7B
 #define CC1101_REG_RCCTRL1_STATUS                     0x3C
 #define CC1101_REG_RCCTRL0_STATUS                     0x3D
 #define CC1101_REG_PATABLE                            0x3E
