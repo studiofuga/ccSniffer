@@ -15,6 +15,10 @@ public:
 
     int initialize();
 
+    enum class SyncType {
+        NoSync = 0, Sync15_16, Sync16_16, Sync30_32,
+        CarrierSense, CarrierSense15_16, CarrierSense16_16, CarrierSense30_32
+    };
     enum class PreambleTypes {
         Bytes2 = 0, Bytes3, Bytes4, Bytes6, Bytes8, bytes12, Bytes16, Bytes28
     };
@@ -22,7 +26,7 @@ public:
         FSK2, GFSK, ASK_OOK, FSK4, MFSK
     };
     enum class SignalDirection {
-        Change = 1, Falling = 2, Rising = 2
+        Change = 1, Falling = 1, Rising = 2
     };
 
 private:
@@ -55,6 +59,7 @@ public:
     void setModulation(Modulation modulation);
     void setMaximumPacketLength(uint8_t max = 255);
     void setVariablePacketLength();
+    void setSyncType(SyncType type);
     void setPreambleLength(PreambleTypes type);
     void setSyncWord(uint8_t w1, uint8_t w2);
     void enableCRC();

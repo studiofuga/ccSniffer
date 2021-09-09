@@ -27,6 +27,9 @@ CC1101Tranceiver::CC1101Tranceiver(uint8_t cs, uint8_t gdo0, uint8_t gdo2, uint8
 
 int CC1101Tranceiver::initialize()
 {
+    detachInterrupt(digitalPinToInterrupt(_gdo0));
+    detachInterrupt(digitalPinToInterrupt(_gdo2));
+
     pinMode(_cs, OUTPUT);
     digitalWrite(_cs, HIGH);
 
@@ -38,6 +41,14 @@ int CC1101Tranceiver::initialize()
     if (!findChip()) {
         return -1;
     }
+
+    standby();
+
+    SPIsetRegValue(CC1101_REG_MCSM0, CC1101_FS_AUTOCAL_IDLE_TO_RXTX, 5, 4);
+    SPIsetRegValue(CC1101_REG_PKTCTRL1, CC1101_CRC_AUTOFLUSH_OFF | CC1101_APPEND_STATUS_ON | CC1101_ADR_CHK_NONE, 3, 0);
+    SPIsetRegValue(CC1101_REG_PKTCTRL0, CC1101_WHITE_DATA_OFF | CC1101_PKT_FORMAT_NORMAL, 6, 4);
+    SPIsetRegValue(CC1101_REG_PKTCTRL0, CC1101_CRC_ON | CC1101_LENGTH_CONFIG_VARIABLE, 2, 0);
+    SPIsetRegValue(CC1101_REG_FIFOTHR, 0x0d, 3, 0);
 
     setFrequency(868.3f);
     setBitrate(38.4);
@@ -81,12 +92,6 @@ bool CC1101Tranceiver::findChip()
 
     SPIsendCommand(CC1101_CMD_RESET);
     delay(150);
-
-    SPIsetRegValue(CC1101_REG_MCSM0, CC1101_FS_AUTOCAL_IDLE_TO_RXTX, 5, 4);
-    SPIsetRegValue(CC1101_REG_PKTCTRL1,
-                   CC1101_CRC_AUTOFLUSH_OFF | CC1101_APPEND_STATUS_ON | CC1101_ADR_CHK_NONE, 3, 0);
-    SPIsetRegValue(CC1101_REG_PKTCTRL0, CC1101_WHITE_DATA_OFF | CC1101_PKT_FORMAT_NORMAL, 6, 4);
-    SPIsetRegValue(CC1101_REG_PKTCTRL0, CC1101_CRC_ON | CC1101_LENGTH_CONFIG_VARIABLE, 2, 0);
 
     return true;
 }
@@ -393,6 +398,12 @@ uint16_t CC1101Tranceiver::setOutputPower(int8_t power)
     }
 }
 
+void CC1101Tranceiver::setSyncType(CC1101Tranceiver::SyncType type)
+{
+    uint8_t value = static_cast<uint8_t>(type);
+    SPIsetRegValue(CC1101_REG_MDMCFG2, value, 2, 0);
+}
+
 void CC1101Tranceiver::setPreambleLength(CC1101Tranceiver::PreambleTypes type)
 {
     uint8_t value = static_cast<uint8_t>(type) << 4;
@@ -464,17 +475,9 @@ int CC1101Tranceiver::read(uint8_t *buffer, int buffersize)
     uint8_t _rawLQI;
 
     uint8_t len;
-    if (mVariableLength) {
-        len = SPIreadRegister(CC1101_REG_FIFO);
-    } else {
-        len = mFixedPacketLength;
-    }
-
-    // check address filtering
-    uint8_t filter = SPIgetRegValue(CC1101_REG_PKTCTRL1, 1, 0);
-    if(filter != CC1101_ADR_CHK_NONE) {
-        SPIreadRegister(CC1101_REG_FIFO);
-    }
+    // this code is for Variable Length and no filtering.
+    len = SPIreadRegister(CC1101_REG_FIFO);
+    SPIreadRegister(CC1101_REG_FIFO);
 
     uint8_t bytesInFIFO = SPIgetRegValue(CC1101_REG_RXBYTES, 6, 0);
     size_t readBytes = 0;
@@ -555,14 +558,16 @@ bool CC1101Tranceiver::receive()
 
 void CC1101Tranceiver::setReceiveHandler(void (*func)(void), CC1101Tranceiver::SignalDirection direction)
 {
-    attachInterrupt(digitalPinToInterrupt(_gdo0), func, static_cast<int >(direction));
-
+    standby();
+    SPIsendCommand(CC1101_CMD_FLUSH_RX);
     // Here should we allow the user to decide what interrupt to handle?
-    SPIsetRegValue(CC1101_REG_IOCFG0, CC1101_GDOX_PKT_RECEIVED_CRC_OK);
-    SPIsetRegValue(CC1101_REG_FIFOTHR, CC1101_FIFO_THR_TX_61_RX_4, 3, 0);
+    SPIsetRegValue(CC1101_REG_IOCFG0,CC1101_GDOX_SYNC_WORD_SENT_OR_RECEIVED/*CC1101_GDOX_PKT_RECEIVED_CRC_OK*/);
+
+    attachInterrupt(digitalPinToInterrupt(_gdo0), func, static_cast<int >(direction));
 }
 
 void CC1101Tranceiver::setTransmitHandler(void (*func)(void), CC1101Tranceiver::SignalDirection direction)
 {
+    SPIsetRegValue(CC1101_REG_IOCFG2, CC1101_GDOX_TX_FIFO_UNDERFLOW);
     attachInterrupt(digitalPinToInterrupt(_gdo2), func, static_cast<int >(direction));
 }
