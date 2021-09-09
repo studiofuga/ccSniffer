@@ -115,11 +115,13 @@ void irqDetect(void)
 void irqRead(void)
 {
     ++numIrq;
+/*
     if (!enableInterrupt || transmitting) {
         ++numFailedIrq;
 //        radio.receive();
         return;
     }
+*/
 
     size_t retries = 0;
     while(true) {
@@ -143,7 +145,7 @@ void irqRead(void)
 //        }
     }
     receivedFlag = true;
-//    radio.receive();
+    radio.receive();
 }
 
 /*
