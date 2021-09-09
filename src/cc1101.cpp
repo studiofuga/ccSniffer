@@ -474,12 +474,17 @@ int CC1101Tranceiver::read(uint8_t *buffer, int buffersize)
     uint8_t _rawRSSI;
     uint8_t _rawLQI;
 
+    uint8_t bytesInFIFO = SPIgetRegValue(CC1101_REG_RXBYTES, 6, 0);
+    if (bytesInFIFO < 2) {
+        return 0;
+    }
+
     uint8_t len;
     // this code is for Variable Length and no filtering.
     len = SPIreadRegister(CC1101_REG_FIFO);
     SPIreadRegister(CC1101_REG_FIFO);
 
-    uint8_t bytesInFIFO = SPIgetRegValue(CC1101_REG_RXBYTES, 6, 0);
+    bytesInFIFO = SPIgetRegValue(CC1101_REG_RXBYTES, 6, 0);
     size_t readBytes = 0;
     uint32_t lastPop = millis();
 
@@ -530,44 +535,44 @@ int CC1101Tranceiver::read(uint8_t *buffer, int buffersize)
 //        }
     }
 
+/*
     // Flush then standby according to RXOFF_MODE (default: CC1101_RXOFF_IDLE)
     if (SPIgetRegValue(CC1101_REG_MCSM1, 3, 2) == CC1101_RXOFF_IDLE) {
-        SPIsendCommand(CC1101_CMD_FLUSH_RX);
         standby();
+        SPIsendCommand(CC1101_CMD_FLUSH_RX);
     }
 
+*/
+    return len;
 }
 
 
 void CC1101Tranceiver::standby()
 {
     SPIsendCommand(CC1101_CMD_IDLE);
-//    _mod->setRfSwitchState(LOW, LOW);
 }
 
-bool CC1101Tranceiver::receive()
+void CC1101Tranceiver::receive()
 {
     standby();
-
     SPIsendCommand(CC1101_CMD_FLUSH_RX);
-    // set RF switch (if present)
-    // _mod->setRfSwitchState(HIGH, LOW);
-
     SPIsendCommand(CC1101_CMD_RX);
 }
 
 void CC1101Tranceiver::setReceiveHandler(void (*func)(void), CC1101Tranceiver::SignalDirection direction)
 {
     standby();
-    SPIsendCommand(CC1101_CMD_FLUSH_RX);
-    // Here should we allow the user to decide what interrupt to handle?
-    SPIsetRegValue(CC1101_REG_IOCFG0,CC1101_GDOX_SYNC_WORD_SENT_OR_RECEIVED/*CC1101_GDOX_PKT_RECEIVED_CRC_OK*/);
 
+    // Here should we allow the user to decide what interrupt to handle?
+    SPIsendCommand(CC1101_CMD_FLUSH_RX);
+    SPIsetRegValue(CC1101_REG_IOCFG0,CC1101_GDOX_SYNC_WORD_SENT_OR_RECEIVED);
     attachInterrupt(digitalPinToInterrupt(_gdo0), func, static_cast<int >(direction));
 }
 
 void CC1101Tranceiver::setTransmitHandler(void (*func)(void), CC1101Tranceiver::SignalDirection direction)
 {
+    standby();
     SPIsetRegValue(CC1101_REG_IOCFG2, CC1101_GDOX_TX_FIFO_UNDERFLOW);
+    SPIsendCommand(CC1101_CMD_FLUSH_TX);
     attachInterrupt(digitalPinToInterrupt(_gdo2), func, static_cast<int >(direction));
 }
