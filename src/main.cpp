@@ -13,10 +13,13 @@ bool machineReadbale = false;
 PacketQueue<4, 64> queue;
 
 void irqRead(void);
+void irqSent(void);
 
-int numIrq = 0;
-int numFailedIrq = 0;
-int numPacket = 0;
+volatile int numTo = 0;
+volatile int numIrq = 0;
+volatile int numSent = 0;
+volatile int numFailedIrq = 0;
+volatile int numPacket = 0;
 //int lastState = ERR_NONE;
 
 void PrintHex8(uint8_t *data, uint8_t length, char const *separator) // prints 8-bit data in hex with leading zeroes
@@ -71,21 +74,19 @@ void setup()
     radio.setOutputPower(10);
 
     radio.setModulation(CC1101Tranceiver::Modulation::GFSK);
+    radio.setSyncType(CC1101Tranceiver::SyncType::Sync30_32);
     radio.setPreambleLength(CC1101Tranceiver::PreambleTypes::Bytes4);
     radio.setSyncWord(0x2d, 0xc5);
-//    radio.enableSyncWordFiltering();
-//    radio.disableAddressFiltering();
-//    radio.setDataShaping(RADIOLIB_SHAPING_0_5);
     radio.enableCRC();
     radio.enableWhitening();
-    radio.SPIsetRegValue(CC1101_REG_PKTCTRL0, CC1101_CRC_ON, 2, 2);
-    radio.SPIsetRegValue(CC1101_REG_MDMCFG2, CC1101_SYNC_MODE_30_32, 2, 0);
     radio.SPIsetRegValue(CC1101_REG_FSCTRL1, 0x06, 4, 0);
     radio.SPIsetRegValue(CC1101_REG_FSCTRL0, 0x05, 7, 0);
 
-    Serial.print(F("Setting IRQs"));
-//    radio.setReceiveHandler(irqRead);
-    Serial.println(F(" Done"));
+    radio.setReceiveHandler(irqRead, CC1101Tranceiver::SignalDirection::Rising);
+    radio.setTransmitHandler(irqSent, CC1101Tranceiver::SignalDirection::Rising);
+
+    delay(500);
+    radio.receive();
 
     if (!machineReadbale) {
         Serial.println(F("[CC1101] Registers dump:"));
@@ -97,22 +98,17 @@ void setup()
             }
         }
     }
+}
 
-    if (!machineReadbale) {
-        Serial.print(F("[CC1101] Starting to listen ... "));
-    }
-    state = radio.receive();
-/*
-    if (state == ERR_NONE) {
-        if (!machineReadbale) {
-            Serial.println(F("success!"));
-        }
-    } else {
-        Serial.print(F("failed, code "));
-        Serial.println(state);
-        while (true) {}
-    }
-*/
+void irqSent(void)
+{
+    ++numSent;
+}
+
+void irqDetect(void)
+{
+    ++numIrq;
+    receivedFlag=true;
 }
 
 void irqRead(void)
@@ -120,9 +116,22 @@ void irqRead(void)
     ++numIrq;
     if (!enableInterrupt || transmitting) {
         ++numFailedIrq;
-//        radio.startReceive();
+        radio.receive();
         return;
     }
+
+    auto now = millis();
+    bool fifoReady = false;
+    do {
+        if ((millis() - now) > 2) {
+            // timeout
+            ++numTo;
+            radio.receive();
+            return;
+        }
+        int fifo = radio.SPIgetRegValue(CC1101_REG_RXBYTES, 6, 0);
+        fifoReady = (fifo > 0);
+    } while (fifoReady);
 
     uint8_t str[128];
     int len = radio.read(str, 128);
@@ -181,7 +190,7 @@ void handleReceived()
 }
 
 
-int cacheNumIrq = -1, cacheNumFailed = -1, cachedNumPacket = -1;
+int cacheNumIrq = -1, cacheNumFailed = -1, cachedNumPacket = -1, cacheNumSent = -1, cachedNumTo = -1;
 
 void loop()
 {
@@ -193,21 +202,83 @@ void loop()
     }
 
 */
-    if (cacheNumIrq != numIrq || cacheNumFailed != numFailedIrq || cachedNumPacket != numPacket) {
+    if (cacheNumIrq != numIrq ||
+    cacheNumFailed != numFailedIrq ||
+    cachedNumPacket != numPacket ||
+    cacheNumSent != numSent ||
+    cachedNumTo != numTo) {
         Serial.print(numIrq);
         Serial.print(" ");
         Serial.print(numFailedIrq);
         Serial.print(" ");
         Serial.print(numPacket);
+        Serial.print(" ");
+        Serial.print(numSent);
+        Serial.print(" ");
+        Serial.print(numTo);
         Serial.println();
         cacheNumIrq = numIrq ;
         cacheNumFailed = numFailedIrq;
         cachedNumPacket = numPacket;
+        cacheNumSent= numSent;
+        cachedNumTo = numTo;
     }
 
+#if 1
     if (receivedFlag) {
+        Serial.println("*");
         handleReceived();
     }
+#else
+    // check if the flag is set
+    if(receivedFlag) {
+        // disable the interrupt service routine while
+        // processing the data
+        enableInterrupt = false;
+
+        // reset flag
+        receivedFlag = false;
+
+        uint8_t str[128];
+        int len = radio.read(str, 128);
+
+        if (!machineReadbale)
+            Serial.println(F("[CC1101] Received packet!"));
+
+        // print data of the packet
+        if (!machineReadbale)
+            Serial.print(F("[CC1101] Data:\t\t"));
+        for (auto i = 0; i < len; ++i){
+            PrintHex8(&str[i],1, (machineReadbale ? nullptr : " "));
+            if (!machineReadbale && (i % 16 )== 15) {
+                Serial.println();
+            }
+        }
+        Serial.println();
+
+        // print RSSI (Received Signal Strength Indicator)
+        // of the last received packet
+        if (!machineReadbale) {
+            Serial.print(F("[CC1101] RSSI:\t\t"));
+//            Serial.print(radio.getRSSI());
+            Serial.println(F(" dBm"));
+
+            // print LQI (Link Quality Indicator)
+            // of the last received packet, lower is better
+            Serial.println(F("[CC1101] LQI:\t\t"));
+//            Serial.println(radio.getLQI());
+
+        }
+
+        // put module back to listen mode
+        enableInterrupt = true;
+        radio.receive();
+
+        // we're ready to receive more packets,
+        // enable interrupt service routine
+    }
+#endif
+
 }
 
 
