@@ -71,6 +71,8 @@ void setup()
 
     Serial.println(F("+CC1101 Registers dump:"));
     for (int i = 0; i < 0x30; ++i) {
+        if ((i%8) == 0)
+            Serial.print("+");
         uint8_t value = radio.SPIreadRegister(i);
         PrintHex8(&value, 1, " ");
         if (i % 8 == 7) {
