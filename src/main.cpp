@@ -12,6 +12,7 @@ bool machineReadbale = false;
 
 PacketQueue<4, 64> queue;
 
+void irqDetect(void);
 void irqRead(void);
 void irqSent(void);
 
@@ -116,22 +117,21 @@ void irqRead(void)
     ++numIrq;
     if (!enableInterrupt || transmitting) {
         ++numFailedIrq;
-        radio.receive();
+//        radio.receive();
         return;
     }
 
-    auto now = millis();
-    bool fifoReady = false;
-    do {
-        if ((millis() - now) > 2) {
+    size_t retries = 0;
+    while(true) {
+        if (++retries > 100) {
             // timeout
             ++numTo;
-            radio.receive();
+//            radio.receive();
             return;
         }
         int fifo = radio.SPIgetRegValue(CC1101_REG_RXBYTES, 6, 0);
-        fifoReady = (fifo > 0);
-    } while (fifoReady);
+        if (fifo > 0) break;
+    };
 
     uint8_t str[128];
     int len = radio.read(str, 128);
@@ -143,7 +143,7 @@ void irqRead(void)
 //        }
     }
     receivedFlag = true;
-    radio.receive();
+//    radio.receive();
 }
 
 /*
@@ -192,16 +192,17 @@ void handleReceived()
 
 int cacheNumIrq = -1, cacheNumFailed = -1, cachedNumPacket = -1, cacheNumSent = -1, cachedNumTo = -1;
 
+unsigned long oldTime  = 0;
+
 void loop()
 {
-/*
-    if (lastState != ERR_NONE) {
-        Serial.print("ERR: ");
-        Serial.println(lastState);
-        lastState = ERR_NONE;
+    unsigned long time = millis();
+    if (time - oldTime >= 1000) {
+        Serial.print("Tick: ");
+        Serial.println(time/1000);
+        oldTime= time;
     }
 
-*/
     if (cacheNumIrq != numIrq ||
     cacheNumFailed != numFailedIrq ||
     cachedNumPacket != numPacket ||
@@ -239,6 +240,20 @@ void loop()
         // reset flag
         receivedFlag = false;
 
+        auto now = millis();
+        bool fifoReady = false;
+        do {
+            if ((millis() - now) > 20) {
+                // timeout
+                ++numTo;
+                Serial.println("TIMEOUT");
+                radio.receive();
+                return;
+            }
+            int fifo = radio.SPIgetRegValue(CC1101_REG_RXBYTES, 6, 0);
+            fifoReady = (fifo > 0);
+        } while (fifoReady);
+
         uint8_t str[128];
         int len = radio.read(str, 128);
 
@@ -248,6 +263,7 @@ void loop()
         // print data of the packet
         if (!machineReadbale)
             Serial.print(F("[CC1101] Data:\t\t"));
+        Serial.println(len);
         for (auto i = 0; i < len; ++i){
             PrintHex8(&str[i],1, (machineReadbale ? nullptr : " "));
             if (!machineReadbale && (i % 16 )== 15) {
