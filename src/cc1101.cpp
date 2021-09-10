@@ -84,7 +84,7 @@ bool CC1101Tranceiver::findChip()
         }
     }
 
-#if 1
+#if 0
     Serial.print("Version: ");
     Serial.print(version, HEX);
     Serial.println();
@@ -342,13 +342,13 @@ uint16_t CC1101Tranceiver::setOutputPower(int8_t power)
 
     // get raw power setting
     static uint8_t paTable[8][4] = {{0x12, 0x12, 0x03, 0x03},
-                             {0x0D, 0x0E, 0x0F, 0x0E},
-                             {0x1C, 0x1D, 0x1E, 0x1E},
-                             {0x34, 0x34, 0x27, 0x27},
-                             {0x51, 0x60, 0x50, 0x8E},
-                             {0x85, 0x84, 0x81, 0xCD},
-                             {0xCB, 0xC8, 0xCB, 0xC7},
-                             {0xC2, 0xC0, 0xC2, 0xC0}};
+                                    {0x0D, 0x0E, 0x0F, 0x0E},
+                                    {0x1C, 0x1D, 0x1E, 0x1E},
+                                    {0x34, 0x34, 0x27, 0x27},
+                                    {0x51, 0x60, 0x50, 0x8E},
+                                    {0x85, 0x84, 0x81, 0xCD},
+                                    {0xCB, 0xC8, 0xCB, 0xC7},
+                                    {0xC2, 0xC0, 0xC2, 0xC0}};
 
     uint8_t powerRaw;
     switch (power) {
@@ -453,7 +453,7 @@ void CC1101Tranceiver::setSyncWord(uint8_t w1, uint8_t w2)
 void CC1101Tranceiver::enableCRC()
 {
 //    if (crcOn == true) {
-        SPIsetRegValue(CC1101_REG_PKTCTRL0, CC1101_CRC_ON, 2, 2);
+    SPIsetRegValue(CC1101_REG_PKTCTRL0, CC1101_CRC_ON, 2, 2);
 //    } else {
 //        return(SPIsetRegValue(CC1101_REG_PKTCTRL0, CC1101_CRC_OFF, 2, 2));
 //    }
@@ -469,19 +469,18 @@ void CC1101Tranceiver::setMaximumPacketLength(uint8_t max)
     SPIsetRegValue(CC1101_REG_PKTLEN, max);
 }
 
-int CC1101Tranceiver::read(uint8_t *buffer, int buffersize)
+ReadStatus CC1101Tranceiver::read(uint8_t *buffer, int buffersize)
 {
-    uint8_t _rawRSSI;
-    uint8_t _rawLQI;
+    ReadStatus status;
 
     uint8_t bytesInFIFO = SPIgetRegValue(CC1101_REG_RXBYTES, 6, 0);
     if (bytesInFIFO < 2) {
-        return 0;
+        status.errc = ReadErrCode::NoData;
+        return status;
     }
 
-    uint8_t len;
     // this code is for Variable Length and no filtering.
-    len = SPIreadRegister(CC1101_REG_FIFO);
+    status.len = SPIreadRegister(CC1101_REG_FIFO);
     SPIreadRegister(CC1101_REG_FIFO);
 
     bytesInFIFO = SPIgetRegValue(CC1101_REG_RXBYTES, 6, 0);
@@ -489,7 +488,7 @@ int CC1101Tranceiver::read(uint8_t *buffer, int buffersize)
     uint32_t lastPop = millis();
 
     // keep reading from FIFO until we get all the packet.
-    while (readBytes < len) {
+    while (readBytes < status.len) {
         if (bytesInFIFO == 0) {
             if (millis() - lastPop > 5) {
                 // TODO: handle this timeout.
@@ -508,7 +507,7 @@ int CC1101Tranceiver::read(uint8_t *buffer, int buffersize)
         }
 
         // read the minimum between "remaining length" and bytesInFifo
-        uint8_t bytesToRead = min((uint8_t)(len - readBytes), bytesInFIFO);
+        uint8_t bytesToRead = min((uint8_t) (status.len - readBytes), bytesInFIFO);
         SPIreadRegisterBurst(CC1101_REG_FIFO, bytesToRead, &(buffer[readBytes]));
         readBytes += bytesToRead;
         lastPop = millis();
@@ -523,27 +522,18 @@ int CC1101Tranceiver::read(uint8_t *buffer, int buffersize)
     // If status byte is enabled at least 2 bytes (2 status bytes + any following packet) will remain in FIFO.
     if (bytesInFIFO >= 2 && isAppendStatus) {
         // read RSSI byte
-        _rawRSSI = SPIgetRegValue(CC1101_REG_FIFO);
+        status.rssi = SPIgetRegValue(CC1101_REG_FIFO);
 
         // read LQI and CRC byte
         uint8_t val = SPIgetRegValue(CC1101_REG_FIFO);
-        _rawLQI = val & 0x7F;
+        status.lqi = val & 0x7F;
 
-        // TODO: check CRC here if needed.
-//        if (_crcOn && (val & CC1101_CRC_OK) == CC1101_CRC_ERROR) {
-//            return (ERR_CRC_MISMATCH);
-//        }
+        if (val & CC1101_CRC_OK == 0) {
+            status.errc = ReadErrCode::CrcError;
+        }
     }
 
-/*
-    // Flush then standby according to RXOFF_MODE (default: CC1101_RXOFF_IDLE)
-    if (SPIgetRegValue(CC1101_REG_MCSM1, 3, 2) == CC1101_RXOFF_IDLE) {
-        standby();
-        SPIsendCommand(CC1101_CMD_FLUSH_RX);
-    }
-
-*/
-    return len;
+    return status;
 }
 
 
@@ -565,7 +555,7 @@ void CC1101Tranceiver::setReceiveHandler(void (*func)(void), CC1101Tranceiver::S
 
     // Here should we allow the user to decide what interrupt to handle?
     SPIsendCommand(CC1101_CMD_FLUSH_RX);
-    SPIsetRegValue(CC1101_REG_IOCFG0,CC1101_GDOX_SYNC_WORD_SENT_OR_RECEIVED);
+    SPIsetRegValue(CC1101_REG_IOCFG0, CC1101_GDOX_SYNC_WORD_SENT_OR_RECEIVED);
     attachInterrupt(digitalPinToInterrupt(_gdo0), func, static_cast<int >(direction));
 }
 

@@ -9,6 +9,19 @@
 #include <SPI.h>
 #include "cc1101consts.h"
 
+enum class ReadErrCode : uint8_t {
+    Ok = 0x00,
+    CrcError = 0x01,
+    NoData = 0xff
+};
+
+struct ReadStatus {
+    ReadErrCode errc = ReadErrCode::Ok;
+    uint8_t lqi= 0;
+    uint8_t rssi= 0;
+    uint8_t len = 0;
+};
+
 class CC1101Tranceiver {
 public:
     CC1101Tranceiver(uint8_t cs, uint8_t gdo0, uint8_t gdo2, uint8_t rst = 0xff);
@@ -70,7 +83,7 @@ public:
     void setReceiveHandler(void (*func)(void), SignalDirection direction = SignalDirection::Rising);
     void setTransmitHandler(void (*func)(void), SignalDirection direction = SignalDirection::Rising);
 
-    int read(uint8_t *buffer, int buffersize);
+    ReadStatus read(uint8_t *buffer, int buffersize);
     void receive();
 
     uint16_t SPIgetRegValue(uint8_t reg, uint8_t msb = 7, uint8_t lsb = 0);
