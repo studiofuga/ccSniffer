@@ -528,7 +528,7 @@ ReadStatus CC1101Tranceiver::read(uint8_t *buffer, int buffersize)
         uint8_t val = SPIgetRegValue(CC1101_REG_FIFO);
         status.lqi = val & 0x7F;
 
-        if (val & CC1101_CRC_OK == 0) {
+        if ((val & CC1101_CRC_OK) == 0) {
             status.errc = ReadErrCode::CrcError;
         }
     }
