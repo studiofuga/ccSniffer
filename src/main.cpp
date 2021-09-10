@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include "cc1101.h"
-//#include <RadioLib.h>
 #include "PacketQueue.h"
 
 CC1101Tranceiver radio(10, 3, 2);
@@ -8,7 +7,8 @@ volatile bool receivedFlag = false;
 volatile bool enableInterrupt = true;
 volatile bool transmitting = false;
 
-PacketQueue<4, 64> queue;
+using PacketQueueT = PacketQueue<4, 64>;
+PacketQueueT queue;
 
 void irqRead(void);
 void irqSent(void);
@@ -16,7 +16,7 @@ void irqSent(void);
 volatile int numSent = 0;
 volatile int numTimeout = 0;
 
-void PrintHex8(uint8_t *data, uint8_t length, char const *separator) // prints 8-bit data in hex with leading zeroes
+void PrintHex8(const uint8_t *data, uint8_t length, char const *separator) // prints 8-bit data in hex with leading zeroes
 {
     for (int i = 0; i < length; i++) {
         if (data[i] < 0x10) { Serial.print("0"); }
@@ -101,10 +101,16 @@ void irqRead(void)
     };
 
     uint8_t str[128];
-    int len = radio.read(str, 128);
+    auto status = radio.read(str, 128);
 
-    if (len > 0) {
-            queue.push((char *) str, len);
+    if (status.len > 0 && status.errc != ReadErrCode::NoData) {
+        PacketQueueT ::PacketT packet;
+        if (status.errc == ReadErrCode::CrcError )
+            packet.setStatus(CRCError);
+        packet.setRssi(status.rssi);
+        packet.setLqi(status.lqi);
+        packet.rawCopyFrom(str, status.len);
+        queue.push(packet);
     }
 
     receivedFlag = true;
@@ -134,21 +140,21 @@ void handleReceived()
     receivedFlag = false;
 
     if (!queue.empty()) {
-        uint8_t buf[128];
-        uint8_t len = queue.pop((char *) buf);
+        PacketQueueT ::PacketT packet;
+        uint8_t len = queue.pop(packet);
 
         Serial.print(F("*"));
         Serial.print(millis());
         Serial.print(F(","));
-        for (auto i = 0; i < len; ++i) {
-            PrintHex8(&buf[i], 1, nullptr);
-        }
+        Serial.print(packet.getRssi());
+        Serial.print(F(","));
+        Serial.print(packet.getLqi());
+        Serial.print(F(","));
+        PrintHex8(packet.data(), packet.len(), nullptr);
 
-/*
-        if (state == ERR_CRC_MISMATCH) {
+        if (packet.getStatus() == CRCError) {
             Serial.print(",BADCRC");
         }
-*/
         Serial.println();
     }
     enableInterrupt = true;
