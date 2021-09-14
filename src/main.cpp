@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "cc1101.h"
 #include "PacketQueue.h"
+#include "SerialHandler.h"
 
 CC1101Tranceiver radio(10, 3, 2);
 volatile bool receivedFlag = false;
@@ -9,6 +10,8 @@ volatile bool transmitting = false;
 
 using PacketQueueT = PacketQueue<4, 64>;
 PacketQueueT queue;
+
+SerialHandler serial;
 
 void irqRead(void);
 void irqSent(void);
@@ -30,7 +33,7 @@ void PrintHex8(const uint8_t *data, uint8_t length, char const *separator) // pr
 
 void setup()
 {
-    Serial.begin(38400);
+    serial.init();
 
     // initialize CC1101 with default settings
     Serial.print(F("+CC1101 Initializing ... "));
@@ -168,6 +171,16 @@ void loop()
     if (cachedNumTo != numTimeout) {
         Serial.println("+CC1101 Timeout");
         cachedNumTo = numTimeout;
+    }
+
+    if (serial.lineAvailable()) {
+        static char buf[64];
+        auto sz = serial.copyLine(buf,64);
+        buf[sz] = '\0';
+        Serial.print("Got ");
+        Serial.print(sz);
+        Serial.print(": ");
+        Serial.println(buf);
     }
 
     if (receivedFlag) {
