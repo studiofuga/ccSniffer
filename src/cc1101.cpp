@@ -536,6 +536,59 @@ ReadStatus CC1101Tranceiver::read(uint8_t *buffer, int buffersize)
     return status;
 }
 
+int CC1101Tranceiver::transmit(uint8_t *packet, int packetLength)
+{
+    // check packet length -- in case of Variable Packet length, length must be accounted
+    if(packetLength > CC1101_MAX_PACKET_LENGTH-1) {
+        fail("Transmit packet too long");
+    }
+
+    standby();
+
+    SPIsendCommand(CC1101_CMD_FLUSH_TX);
+
+    uint8_t dataSent = 0;
+
+    SPIwriteRegister(CC1101_REG_FIFO, packetLength);
+    dataSent += 1;
+
+    // We don't handle addresses, in case we should handle this.
+/*
+    uint8_t filter = SPIgetRegValue(CC1101_REG_PKTCTRL1, 1, 0);
+    if(filter != CC1101_ADR_CHK_NONE) {
+        SPIwriteRegister(CC1101_REG_FIFO, addr);
+        dataSent += 1;
+    }
+*/
+
+    // fill the FIFO.
+    uint8_t initialWrite = min((uint8_t)packetLength, (uint8_t)(CC1101_FIFO_SIZE - dataSent));
+    SPIwriteRegisterBurst(CC1101_REG_FIFO, packet, initialWrite);
+    dataSent += initialWrite;
+
+    SPIsendCommand(CC1101_CMD_TX);
+
+    while (dataSent < packetLength) {
+        uint8_t bytesInFIFO = SPIgetRegValue(CC1101_REG_TXBYTES, 6, 0);
+
+        if (bytesInFIFO < CC1101_FIFO_SIZE) {
+            uint8_t bytesToWrite = min((uint8_t)(CC1101_FIFO_SIZE - bytesInFIFO), (uint8_t)(packetLength - dataSent));
+            SPIwriteRegisterBurst(CC1101_REG_FIFO, &packet[dataSent], bytesToWrite);
+            dataSent += bytesToWrite;
+        } else {
+            // wait for radio to send some data.
+            /*
+              * Does this work for all rates? If 1 ms is longer than the 1ms delay
+              * then the entire FIFO will be transmitted during that delay.
+              *
+              * TODO: test this on real hardware
+            */
+            delayMicroseconds(250);
+        }
+    }
+
+    return dataSent;
+}
 
 void CC1101Tranceiver::standby()
 {
@@ -552,8 +605,6 @@ void CC1101Tranceiver::receive()
 void CC1101Tranceiver::setReceiveHandler(void (*func)(void), CC1101Tranceiver::SignalDirection direction)
 {
     standby();
-
-    // Here should we allow the user to decide what interrupt to handle?
     SPIsendCommand(CC1101_CMD_FLUSH_RX);
     SPIsetRegValue(CC1101_REG_IOCFG0, CC1101_GDOX_SYNC_WORD_SENT_OR_RECEIVED);
     attachInterrupt(digitalPinToInterrupt(_gdo0), func, static_cast<int >(direction));
@@ -562,7 +613,7 @@ void CC1101Tranceiver::setReceiveHandler(void (*func)(void), CC1101Tranceiver::S
 void CC1101Tranceiver::setTransmitHandler(void (*func)(void), CC1101Tranceiver::SignalDirection direction)
 {
     standby();
-    SPIsetRegValue(CC1101_REG_IOCFG2, CC1101_GDOX_TX_FIFO_UNDERFLOW);
     SPIsendCommand(CC1101_CMD_FLUSH_TX);
+    SPIsetRegValue(CC1101_REG_IOCFG2, CC1101_GDOX_TX_FIFO_UNDERFLOW);
     attachInterrupt(digitalPinToInterrupt(_gdo2), func, static_cast<int >(direction));
 }

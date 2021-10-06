@@ -31,11 +31,41 @@ void PrintHex8(const uint8_t *data, uint8_t length, char const *separator) // pr
     }
 }
 
+uint8_t nibble(char n) {
+    if (n >= '0' && n <= '9')
+        return n - '0';
+    if (n >= 'A' && n <= 'F')
+        return n - 'A' + 10;
+    if (n >= 'a' && n <= 'f')
+        return n - 'a' + 10;
+    return 0;
+}
+
+size_t hexToBin(const char *hex, uint8_t *bin, size_t maxbinlen) {
+    size_t len = 0;
+    while (true) {
+        if (*hex == '\0') {
+            return len;
+        }
+        *bin = (nibble(*hex) << 4);
+        ++hex;
+        if (*hex == '\0') {
+            return len;
+        }
+        *bin = *bin | (nibble(*hex));
+        ++hex;
+        ++len;
+        ++bin;
+        if (len == maxbinlen)
+            return len;
+    }
+}
+
 void setup()
 {
     serial.init();
 
-    // initialize CC1101 with default settings
+    Serial.println(F("+ccSniffer"));
     Serial.print(F("+CC1101 Initializing ... "));
 
     auto state = radio.initialize();
@@ -172,15 +202,30 @@ void loop()
         Serial.println("+CC1101 Timeout");
         cachedNumTo = numTimeout;
     }
+    if (cacheNumSent != numSent) {
+        Serial.print("+CC1101 ");
+        Serial.print(numSent);
+        Serial.println(" Preambles Recv/Sent");
+        cacheNumSent = numSent;
+    }
 
     if (serial.lineAvailable()) {
-        static char buf[64];
-        auto sz = serial.copyLine(buf,64);
+        static char buf[128];
+        auto sz = serial.copyLine(buf,128);
         buf[sz] = '\0';
         Serial.print("Got ");
         Serial.print(sz);
         Serial.print(": ");
         Serial.println(buf);
+
+        static uint8_t pkt[64];
+        auto pktlen = hexToBin(buf,pkt,64);
+        auto sn = radio.transmit(pkt, pktlen);
+
+        Serial.print("Sent ");
+        Serial.print(sn);
+        Serial.print(": ");
+        PrintHex8(pkt, pktlen, " ");
     }
 
     if (receivedFlag) {
