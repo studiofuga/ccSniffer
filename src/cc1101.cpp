@@ -3,6 +3,7 @@
  * https://github.com/jgromes/RadioLib
  */
 
+#include <Arduino.h>
 #include "cc1101.h"
 #include "cc1101consts.h"
 

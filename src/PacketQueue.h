@@ -19,7 +19,7 @@ public:
 };
 
 enum PacketStatus : uint8_t {
-    OK = 0x00, CRCError=0x01
+    PacketOK = 0x00, CRCError=0x01
 };
 
 template <int PKTSIZE = 64>
@@ -29,7 +29,7 @@ private:
     uint8_t length = 0;
     uint8_t lqi = 0;
     uint8_t rssi = 0;
-    PacketStatus status = PacketStatus::OK;
+    PacketStatus status = PacketStatus::PacketOK;
 
 public:
     static const uint8_t RAWSIZE = PKTSIZE+4;

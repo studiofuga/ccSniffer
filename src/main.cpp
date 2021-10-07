@@ -3,7 +3,12 @@
 #include "PacketQueue.h"
 #include "SerialHandler.h"
 
+#if defined (BOARD_HUZZAH32)
+CC1101Tranceiver radio(25, 39, 34);
+#elif defined (BOARD_NANO)
 CC1101Tranceiver radio(10, 3, 2);
+#endif
+
 volatile bool receivedFlag = false;
 volatile bool enableInterrupt = true;
 volatile bool transmitting = false;
