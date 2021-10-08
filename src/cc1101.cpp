@@ -482,7 +482,6 @@ ReadStatus CC1101Tranceiver::read(uint8_t *buffer, int buffersize)
 
     // this code is for Variable Length and no filtering.
     status.len = SPIreadRegister(CC1101_REG_FIFO);
-    SPIreadRegister(CC1101_REG_FIFO);
 
     bytesInFIFO = SPIgetRegValue(CC1101_REG_RXBYTES, 6, 0);
     size_t readBytes = 0;
