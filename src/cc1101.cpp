@@ -539,6 +539,9 @@ ReadStatus CC1101Tranceiver::read(uint8_t *buffer, int buffersize)
 
 int CC1101Tranceiver::transmit(uint8_t *packet, int packetLength)
 {
+    if (packetLength == 0)
+        return 0;
+
     // check packet length -- in case of Variable Packet length, length must be accounted
     if(packetLength > CC1101_MAX_PACKET_LENGTH-1) {
         fail("Transmit packet too long");
