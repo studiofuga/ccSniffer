@@ -83,7 +83,7 @@ void setup()
     }
 
     auto v = radio.getChipVersion();
-    Serial.print("Chip version: ");
+    Serial.print("+Chip version: ");
     Serial.println(v);
 
     radio.setFrequency(868.3);
@@ -117,6 +117,8 @@ void setup()
             Serial.println();
         }
     }
+
+    Serial.println("+READY");
 }
 
 void irqSent(void)
@@ -204,10 +206,12 @@ int cacheNumSent = -1, cachedNumTo = -1;
 void loop()
 {
     if (cachedNumTo != numTimeout) {
+        Serial.println();
         Serial.println("+CC1101 Timeout");
         cachedNumTo = numTimeout;
     }
     if (cacheNumSent != numSent) {
+        Serial.println();
         Serial.print("+CC1101 ");
         Serial.print(numSent);
         Serial.println(" Preambles Recv/Sent");
@@ -218,19 +222,19 @@ void loop()
         static char buf[128];
         auto sz = serial.copyLine(buf,128);
         buf[sz] = '\0';
-        Serial.print("Got ");
-        Serial.print(sz);
-        Serial.print(": ");
-        Serial.println(buf);
+//        Serial.print("Got ");
+//        Serial.print(sz);
+//        Serial.print(": ");
+//        Serial.println(buf);
 
         static uint8_t pkt[64];
         auto pktlen = hexToBin(buf,pkt,64);
         auto sn = radio.transmit(pkt, pktlen);
 
-        Serial.print("Sent ");
-        Serial.print(sn);
-        Serial.print(": ");
-        PrintHex8(pkt, pktlen, " ");
+//        Serial.print("Sent ");
+//        Serial.print(sn);
+//        Serial.print(": ");
+//        PrintHex8(pkt, pktlen, " ");
     }
 
     if (receivedFlag) {
