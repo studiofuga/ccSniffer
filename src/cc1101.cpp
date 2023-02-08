@@ -474,65 +474,19 @@ ReadStatus CC1101Tranceiver::read(uint8_t *buffer, int buffersize)
 {
     ReadStatus status;
 
-    uint8_t bytesInFIFO = SPIgetRegValue(CC1101_REG_RXBYTES, 6, 0);
-    if (bytesInFIFO < 2) {
-        status.errc = ReadErrCode::NoData;
-        return status;
-    }
-
-    // this code is for Variable Length and no filtering.
-    status.len = SPIreadRegister(CC1101_REG_FIFO);
-
-    bytesInFIFO = SPIgetRegValue(CC1101_REG_RXBYTES, 6, 0);
     size_t readBytes = 0;
-    uint32_t lastPop = millis();
-
-    // keep reading from FIFO until we get all the packet.
-    while (readBytes < status.len) {
-        if (bytesInFIFO == 0) {
-            if (millis() - lastPop > 5) {
-                // TODO: handle this timeout.
-                break;
-            } else {
-                /*
-                 * Does this work for all rates? If 1 ms is longer than the 1ms delay
-                 * then the entire FIFO will be transmitted during that delay.
-                 *
-                 * TODO: drop this delay(1) or come up with a better solution:
-                */
-                delay(1);
-                bytesInFIFO = SPIgetRegValue(CC1101_REG_RXBYTES, 6, 0);
-                continue;
-            }
-        }
-
+    uint8_t bytesInFIFO = SPIgetRegValue(CC1101_REG_RXBYTES, 6, 0);
+    while (bytesInFIFO > 0) {
         // read the minimum between "remaining length" and bytesInFifo
-        uint8_t bytesToRead = min((uint8_t) (status.len - readBytes), bytesInFIFO);
-        SPIreadRegisterBurst(CC1101_REG_FIFO, bytesToRead, &(buffer[readBytes]));
-        readBytes += bytesToRead;
-        lastPop = millis();
+        SPIreadRegisterBurst(CC1101_REG_FIFO, bytesInFIFO, &(buffer[readBytes]));
+        readBytes += bytesInFIFO;
 
         // Get how many bytes are left in FIFO.
         bytesInFIFO = SPIgetRegValue(CC1101_REG_RXBYTES, 6, 0);
     }
 
-    // check if status bytes are enabled (default: CC1101_APPEND_STATUS_ON)
-    bool isAppendStatus = SPIgetRegValue(CC1101_REG_PKTCTRL1, 2, 2) == CC1101_APPEND_STATUS_ON;
-
-    // If status byte is enabled at least 2 bytes (2 status bytes + any following packet) will remain in FIFO.
-    if (bytesInFIFO >= 2 && isAppendStatus) {
-        // read RSSI byte
-        status.rssi = SPIgetRegValue(CC1101_REG_FIFO);
-
-        // read LQI and CRC byte
-        uint8_t val = SPIgetRegValue(CC1101_REG_FIFO);
-        status.lqi = val & 0x7F;
-
-        if ((val & CC1101_CRC_OK) == 0) {
-            status.errc = ReadErrCode::CrcError;
-        }
-    }
-
+    status.len = readBytes;
+    status.errc = readBytes > 0 ? ReadErrCode::Ok : ReadErrCode::NoData;
     return status;
 }
 

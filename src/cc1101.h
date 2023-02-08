@@ -17,8 +17,6 @@ enum class ReadErrCode : uint8_t {
 
 struct ReadStatus {
     ReadErrCode errc = ReadErrCode::Ok;
-    uint8_t lqi= 0;
-    uint8_t rssi= 0;
     uint8_t len = 0;
 };
 

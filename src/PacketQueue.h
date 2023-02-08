@@ -8,21 +8,15 @@
 #include <Arduino.h>
 #include <stdint.h>
 
-class InterruptProtector {
-public:
-    InterruptProtector() {
-        noInterrupts();
-    }
-    ~InterruptProtector() {
-        interrupts();
-    }
-};
 
 enum PacketStatus : uint8_t {
     PacketOK = 0x00, CRCError=0x01
 };
 
-template <int PKTSIZE = 64>
+#define DEFAULT_PACKET_SIZE 64
+#define DEFAULT_QUEUE_LENGTH 3
+
+template <int PKTSIZE = DEFAULT_PACKET_SIZE>
 class Packet {
 private:
     uint8_t buffer[PKTSIZE];
@@ -93,67 +87,94 @@ public:
     }
 };
 
-template <int QUEUESIZE = 4, int PKTSIZE = 64>
-class PacketQueue {
-    using RawPacket = uint8_t[Packet<PKTSIZE>::RAWSIZE];
-    RawPacket queue[QUEUESIZE];
-    uint8_t head = 0, tail = 0;
+template <int PKTQUEUELEN = DEFAULT_QUEUE_LENGTH, int PKTSIZE = DEFAULT_PACKET_SIZE>
+class RawPacketsQueue {
+public:
+    struct RawPacket {
+        uint8_t length = 0;
+        uint8_t buffer[PKTSIZE];
+    };
 
-    bool emptyNoBlock() const {
+private:
+    RawPacket queue[PKTQUEUELEN];
+    uint8_t head = 0;
+    uint8_t tail = 0;
+public:
+    static constexpr size_t MAX_PACKET_SIZE = PKTSIZE;
+
+    RawPacketsQueue()= default;
+
+    bool empty() const {
         return head == tail;
     }
 
-   bool fullNoBlock() const {
-        return ((head+1)%QUEUESIZE) == tail;
+    bool full() const {
+        return (head + 1) % PKTQUEUELEN == tail;
     }
-    
-    static const uint8_t IDX_LQI=0;
-    static const uint8_t IDX_RSSI=1;
-    static const uint8_t IDX_STATUS=2;
-    static const uint8_t IDX_LEN=3;
-    static const uint8_t IDX_DATA=4;
+
+    uint8_t push(const uint8_t *data, uint8_t len) {
+        if (full()) {
+            return 0;
+        }
+        uint8_t pos = head;
+        head = (head + 1) % PKTQUEUELEN;
+        queue[pos].length = len;
+        memcpy(queue[pos].buffer, data, len);
+        return len;
+    }
+
+    uint8_t pop(uint8_t *data, uint8_t maxlen) {
+        if (empty()) {
+            return 0;
+        }
+        uint8_t pos = tail;
+        tail = (tail + 1) % PKTQUEUELEN;
+        uint8_t len = queue[pos].length;
+        if (len > maxlen)
+            len = maxlen;
+        memcpy(data, queue[pos].buffer, len);
+        return len;
+    }
+};
+
+template <int PKTQUEUELEN = DEFAULT_QUEUE_LENGTH, int PKTSIZE = DEFAULT_PACKET_SIZE>
+class PacketsQueue {
 public:
-    using PacketT = Packet<PKTSIZE>;
+    using PacketType = Packet<PKTSIZE>;
+private:
+    PacketType queue[PKTQUEUELEN];
+    uint8_t head = 0;
+    uint8_t tail = 0;
 
-    PacketQueue() {
-
-    }
+public:
+    PacketsQueue() = default;
 
     bool empty() const {
-        InterruptProtector ip;
-        return emptyNoBlock();
+        return head == tail;
     }
 
     bool full() const {
-        InterruptProtector ip;
-        return fullNoBlock();
+        return (head + 1) % PKTQUEUELEN == tail;
     }
 
-    int pop(Packet<PKTSIZE> &packet) {
-        InterruptProtector ip;
-        if (!emptyNoBlock()) {
-            packet.setLqi(queue[tail][IDX_LQI]);
-            packet.setRssi(queue[tail][IDX_RSSI]);
-            packet.setStatus(static_cast<PacketStatus>(queue[tail][IDX_STATUS]));
-            packet.rawCopyFrom(&queue[tail][IDX_DATA], queue[tail][IDX_LEN]);
-            tail = (tail+1)%QUEUESIZE;
-            return packet.len();
+    uint8_t push(const PacketType &pkt) {
+        if (full()) {
+            return 0;
         }
-        return 0;
+        uint8_t pos = head;
+        head = (head + 1) % PKTQUEUELEN;
+        queue[pos] = pkt;
+        return 1;
     }
 
-    int push(Packet<PKTSIZE> const &packet) {
-        InterruptProtector ip;
-        if (!fullNoBlock()) {
-            queue[head][IDX_LEN] = packet.len();
-            queue[head][IDX_LQI] = packet.getLqi();
-            queue[head][IDX_RSSI] = packet.getRssi();
-            queue[head][IDX_STATUS] = packet.getStatus();
-            packet.rawCopyTo(&queue[head][IDX_DATA], PKTSIZE);
-            head = (head+1)%QUEUESIZE;
-            return packet.len();
+    uint8_t pop(PacketType &pkt) {
+        if (empty()) {
+            return 0;
         }
-        return 0;
+        uint8_t pos = tail;
+        tail = (tail + 1) % PKTQUEUELEN;
+        pkt = queue[pos];
+        return 1;
     }
 };
 

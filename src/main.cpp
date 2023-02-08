@@ -9,12 +9,10 @@ CC1101Tranceiver radio(25, 39, 34);
 CC1101Tranceiver radio(10, 3, 2);
 #endif
 
-volatile bool receivedFlag = false;
-volatile bool enableInterrupt = true;
-volatile bool transmitting = false;
-
-using PacketQueueT = PacketQueue<4, 64>;
-PacketQueueT queue;
+using UnprocessedQueue = RawPacketsQueue<4,64>;
+UnprocessedQueue unprocessedQueue;
+using Queue = PacketsQueue<4,64>;
+Queue queue;
 
 SerialHandler serial;
 
@@ -23,6 +21,7 @@ void irqSent(void);
 
 volatile int numSent = 0;
 volatile int numTimeout = 0;
+volatile int numRecvIrq = 0;
 
 void PrintHex8(const uint8_t *data, uint8_t length, char const *separator) // prints 8-bit data in hex with leading zeroes
 {
@@ -128,6 +127,7 @@ void irqSent(void)
 
 void irqRead(void)
 {
+    ++numRecvIrq;
     size_t retries = 0;
     while(true) {
         if (++retries > 100) {
@@ -136,7 +136,7 @@ void irqRead(void)
             radio.receive();
             return;
         }
-        int fifo = radio.SPIgetRegValue(CC1101_REG_RXBYTES, 6, 0);
+        auto fifo = radio.SPIgetRegValue(CC1101_REG_RXBYTES, 6, 0);
         if (fifo > 0) break;
     };
 
@@ -144,72 +144,86 @@ void irqRead(void)
     auto status = radio.read(str, 128);
 
     if (status.len > 0 && status.errc != ReadErrCode::NoData) {
-        PacketQueueT ::PacketT packet;
-        if (status.errc == ReadErrCode::CrcError )
-            packet.setStatus(CRCError);
-        packet.setRssi(status.rssi);
-        packet.setLqi(status.lqi);
-        packet.rawCopyFrom(str, status.len);
-        queue.push(packet);
+        unprocessedQueue.push(str, status.len);
     }
 
-    receivedFlag = true;
     radio.receive();
 }
 
-/*
-void transmitHex(char *text)
+void handleUnprocessed()
 {
-    transmitting = true;
-    radio.clearGdo0Action();
-
-    Serial.println(F("Sending..."));
-    uint8_t data[] = {0x00, 0x20, 0x00, 0x01, 0x41, 0x42, 0x43, 0x44};
-    size_t datalen = 8;
-    radio.transmit(data, datalen);
-
-    radio.startReceive();
-    transmitting = false;
-}
-
+    int y= 0;
+    do {
+        noInterrupts();
+        if (unprocessedQueue.empty()) {
+            interrupts();
+/*
+            if (y>0) {
+                Serial.print(y);
+                Serial.print(" ");
+                Serial.println(queue.empty());
+            }
 */
+            return;
+        }
+
+        uint8_t raw[UnprocessedQueue::MAX_PACKET_SIZE];
+        uint8_t len = unprocessedQueue.pop(raw, UnprocessedQueue::MAX_PACKET_SIZE);
+        interrupts();
+
+        Queue::PacketType packet;
+
+        packet.setRssi(raw[len-2]);
+        packet.setLqi(raw[len-1] & 0x7f);
+        packet.setStatus((raw[len-1] & 0x80) ? PacketOK : CRCError);
+        packet.rawCopyFrom(raw+1, len-3);
+
+        queue.push(packet);
+        ++y;
+    } while (true);
+}
 
 void handleReceived()
 {
-    enableInterrupt = false;
-    receivedFlag = false;
-
     if (!queue.empty()) {
-        PacketQueueT ::PacketT packet;
-        uint8_t len = queue.pop(packet);
+        Queue::PacketType packet;
+        if (queue.pop(packet)) {
 
-        Serial.print(F("*"));
-        Serial.print(millis());
-        Serial.print(F(","));
-        Serial.print(packet.getRssi());
-        Serial.print(F(","));
-        Serial.print(packet.getLqi());
-        Serial.print(F(","));
-        PrintHex8(packet.data(), packet.len(), nullptr);
+            Serial.print(F("*"));
+            Serial.print(millis());
+            Serial.print(F(","));
+            Serial.print(packet.getRssi());
+            Serial.print(F(","));
+            Serial.print(packet.getLqi());
+            Serial.print(F(","));
+            PrintHex8(packet.data(), packet.len(), nullptr);
 
-        if (packet.getStatus() == CRCError) {
-            Serial.print(",BADCRC");
+            if (packet.getStatus() == CRCError) {
+                Serial.print(",BADCRC");
+            }
+            Serial.println();
         }
-        Serial.println();
     }
-    enableInterrupt = true;
 }
 
 
 int cacheNumSent = -1, cachedNumTo = -1;
+int cachedNumIrq = -1;
 
 void loop()
 {
     if (cachedNumTo != numTimeout) {
-        Serial.println();
         Serial.println("+CC1101 Timeout");
         cachedNumTo = numTimeout;
     }
+/*
+    if (cachedNumIrq != numRecvIrq) {
+        Serial.print("+CC1101 IRQ:");
+        Serial.println(numRecvIrq);
+        cachedNumIrq = numRecvIrq;
+    }
+*/
+/*
     if (cacheNumSent != numSent) {
         Serial.println();
         Serial.print("+CC1101 ");
@@ -217,6 +231,7 @@ void loop()
         Serial.println(" Preambles Recv/Sent");
         cacheNumSent = numSent;
     }
+*/
 
     if (serial.lineAvailable()) {
         static char buf[128];
@@ -229,7 +244,7 @@ void loop()
 
         static uint8_t pkt[64];
         auto pktlen = hexToBin(buf,pkt,64);
-        auto sn = radio.transmit(pkt, pktlen);
+        radio.transmit(pkt, pktlen);
 
 //        Serial.print("Sent ");
 //        Serial.print(sn);
@@ -237,9 +252,8 @@ void loop()
 //        PrintHex8(pkt, pktlen, " ");
     }
 
-    if (receivedFlag) {
-        handleReceived();
-    }
+    handleUnprocessed();
+    handleReceived();
 }
 
 
